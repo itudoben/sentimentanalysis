@@ -7,10 +7,14 @@ Example:
         $ python file_loader.py
 """
 
-import re, os
-from datetime import datetime
-from pathlib import Path
+import os
+import re
 import shutil
+from datetime import datetime
+from functools import partial
+
+from pathlib import Path
+from pyspark.sql import Row
 
 
 def load_data(base_path, observations_max, spark):
@@ -21,13 +25,11 @@ def load_data(base_path, observations_max, spark):
 
     The loaded and processed data is then stored in a parquet file on the base_path.
 
-    Args:
-        base_path (string): the file system path of the folder of Stanford IMDb Review dataset.
-        observations_max (int): the maximum number of observations to load. -1 means all.
-        spark (SparkSession): the spark session.
-
-    Returns:
-        string: the name of the file where the parquet data set is stored. 
+    :param base_path: (string): the file system path of the folder of Stanford IMDb Review dataset.
+    :param observations_max: (int): the maximum number of observations to load. -1 means all.
+    :param spark: (SparkSession): the spark session.
+    :return: string, DataFrame: the name of the file where the parquet data set is stored and
+        the Spark data frame associated.
     """
 
     # RegEx for extracting file information.
@@ -52,11 +54,8 @@ def load_data(base_path, observations_max, spark):
     # The context.
     sc = spark.sparkContext
 
-    # The complete data frame built from all the files.
-    df = None
-
     # Keep track of when the data set was built.
-    utcdate = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    utc_date = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
     entries = []
 
@@ -77,7 +76,7 @@ def load_data(base_path, observations_max, spark):
             for file in os.listdir(dir_path):
                 # Extract the ID and the rating of the review from the file name.
                 m = prog.match(file)
-                id = int(m.group(1))
+                review_id = int(m.group(1))
                 rating = int(m.group(2))
 
                 # Read in the review.
@@ -85,7 +84,7 @@ def load_data(base_path, observations_max, spark):
                     txt = infile.read()
 
                 # Prepare the entry
-                entry = [set_name, file, utcdate, id, int(polarity), int(rating), txt]
+                entry = [set_name, file, utc_date, review_id, int(polarity), int(rating), txt]
                 entries.append(entry)
 
                 # Loop checking.
@@ -121,7 +120,48 @@ def load_data(base_path, observations_max, spark):
 
     df.write.parquet(file_pqt)
 
-    return file_pqt
+    return file_pqt, df
+
+
+def clean_html(text):
+    """HTML tags cleaning.
+
+    :param text: the text to remove HTML tags from.
+    :return: the text cleaned of tags.
+    """
+
+    res = re.sub('<.*/>', '', text)
+    return re.sub('[\W]+', ' ', res)
+
+
+def _preprocess(new_column_name, row):
+    """
+
+    :param new_column_name:
+    :param row:
+    :return:
+    """
+
+    data = row.asDict()
+    text = data['text']
+
+    # Use a regex to clean HTML tags
+    text = clean_html(text)
+    data[new_column_name] = text
+
+    return Row(**data)
+
+
+def transform_html_clean(df, new_column_name):
+    """
+
+    :param df:
+    :param new_column_name:
+    :return:
+    """
+
+    a_f = partial(_preprocess, new_column_name)
+    return df.rdd.map(a_f).toDF()
 
 
 def main():

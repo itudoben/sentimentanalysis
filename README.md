@@ -9,4 +9,4 @@ Future improvements:
 * code refactoring of the data set loading for future notebooks
 
 # Requirements
-PySpark 2.3.2 on Jupyter.
+PySpark v2.3.2 on jupyterlab v0.35.2
