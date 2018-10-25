@@ -130,8 +130,7 @@ def clean_html(text):
     :return: the text cleaned of tags.
     """
 
-    res = re.sub('<.*/>', '', text)
-    return re.sub('[\W]+', ' ', res)
+    return re.sub('<\w*[^>]\/>|[\[\]\(\)]', '', text)
 
 
 def _preprocess(new_column_name, row):
