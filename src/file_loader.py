@@ -11,10 +11,13 @@ import os
 import re
 import shutil
 from datetime import datetime
-from functools import partial
 
 from pathlib import Path
-from pyspark.sql import Row
+from pyspark import keyword_only
+from pyspark.ml import Transformer
+from pyspark.ml.param.shared import HasInputCol, HasOutputCol, Param
+from pyspark.sql.functions import udf
+from pyspark.sql.types import StringType
 
 
 def load_data(base_path, observations_max, spark):
@@ -123,44 +126,34 @@ def load_data(base_path, observations_max, spark):
     return file_pqt, df
 
 
-def clean_html(text):
+# Create a custom word count transformer class
+
+# Create a custom word count transformer class
+class HTMLTagsRemover(Transformer, HasInputCol, HasOutputCol):
     """HTML tags cleaning.
-
-    :param text: the text to remove HTML tags from.
-    :return: the text cleaned of tags.
     """
 
-    return re.sub('<\w*[^>]\/>|[\[\]\(\)]', '', text)
+    @keyword_only
+    def __init__(self, inputCol=None, outputCol=None):
+        super(HTMLTagsRemover, self).__init__()
+        kwargs = self._input_kwargs
+        self.setParams(**kwargs)
 
+    @keyword_only
+    def setParams(self, inputCol=None, outputCol=None):
+        kwargs = self._input_kwargs
+        return self._set(**kwargs)
 
-def _preprocess(new_column_name, row):
-    """
+    def _transform(self, dataset):
+        def f(s):
+            return re.sub('<\w*[^>]\/>|[\[\]\(\)]', '', s)
 
-    :param new_column_name:
-    :param row:
-    :return:
-    """
+        t = StringType()
 
-    data = row.asDict()
-    text = data['text']
+        out_col = self.getOutputCol()
+        in_col = dataset[self.getInputCol()]
 
-    # Use a regex to clean HTML tags
-    text = clean_html(text)
-    data[new_column_name] = text
-
-    return Row(**data)
-
-
-def transform_html_clean(df, new_column_name):
-    """
-
-    :param df:
-    :param new_column_name:
-    :return:
-    """
-
-    a_f = partial(_preprocess, new_column_name)
-    return df.rdd.map(a_f).toDF()
+        return dataset.withColumn(out_col, udf(f, t)(in_col))
 
 
 def main():
